@@ -8,7 +8,7 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import logo from '@/assets/svgs/logo.svg';
-import SignIn from './SignIn';
+import AuthButton from './AuthButton';
 import UserDropdown from './UserDropdown';
 
 import { useAuthContext } from '@/context/AuthContext';
@@ -30,7 +30,7 @@ export default function Header() {
       </div>
       <NavbarContent justify='end' className="h-full flex items-center">
         <NavbarItem>
-          {user == null ? <SignIn /> : <UserDropdown user={user} />}
+          <AuthButton />
         </NavbarItem>
       </NavbarContent>
     </Navbar>

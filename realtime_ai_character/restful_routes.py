@@ -39,9 +39,34 @@ from realtime_ai_character.models.character import (
     GenerateHighlightRequest,
     GeneratePromptRequest,
 )
+from pydantic import BaseModel
+from siwe import SiweMessage
+import jwt
+
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")
+JWT_ALGORITHM = "HS256"
 
 
 router = APIRouter()
+
+
+class Payload(BaseModel):
+    address: str
+    chain_id: str
+    domain: str
+    expiration_time: Optional[str]
+    invalid_before: Optional[str]
+    issued_at: Optional[str]
+    nonce: str
+    statement: Optional[str]
+    version: str
+    uri: str
+
+
+class AuthPayload(BaseModel):
+    signature: str
+    payload: Payload
+
 
 if os.getenv("USE_AUTH") == "true":
     cred = credentials.Certificate(os.environ.get("FIREBASE_CONFIG_PATH"))
@@ -50,28 +75,66 @@ if os.getenv("USE_AUTH") == "true":
 MAX_FILE_UPLOADS = 5
 
 
+def generate_jwt(address: str) -> str:
+    payload = {"address": address}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
 async def get_current_user(request: Request):
-    """Returns the current user if the request is authenticated, otherwise None."""
-    if os.getenv("USE_AUTH") == "true" and "Authorization" in request.headers:
-        # Extracts the token from the Authorization header
-        tokens = request.headers.get("Authorization", "").split("Bearer ")
-        if not tokens or len(tokens) < 2:
-            raise HTTPException(
-                status_code=http_status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        token = tokens[1]
-        try:
-            # Verify the token against the Firebase Auth API.
-            decoded_token = auth.verify_id_token(token)
-        except FirebaseError:
-            raise HTTPException(
-                status_code=http_status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return decoded_token
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing",
+        )
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+
+@router.post("/auth/login")
+async def login(input: AuthPayload):
+
+    print("payload: ", input)
+    try:
+
+        signature = input.signature
+
+        message = SiweMessage(input.payload)
+
+        message.verify(signature)
+
+        token = generate_jwt(message.address)
+        return {"status": "success", "token": token}
+
+    except Exception as e:
+        print(f"Login failed: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid signature or payload",
+        )
+
+
+@router.get("/auth/check")
+async def is_logged_in(token: str = Depends(get_current_user)):
+
+    if token:
+        return {"status": "success", "user": token}
+    raise HTTPException(
+        status_code=http_status.HTTP_401_UNAUTHORIZED,
+        detail="User not authenticated",
+    )
 
 
 @router.get("/status")
@@ -121,7 +184,12 @@ async def characters(user=Depends(get_current_user)):
 @router.get("/configs")
 async def configs():
     return {
-        "llms": ["gpt-4", "gpt-3.5-turbo-16k", "claude-2", "meta-llama/Llama-2-70b-chat-hf"],
+        "llms": [
+            "gpt-4",
+            "gpt-3.5-turbo-16k",
+            "claude-2",
+            "meta-llama/Llama-2-70b-chat-hf",
+        ],
     }
 
 
@@ -138,7 +206,9 @@ async def get_session_history(session_id: str, db: Session = Depends(get_db)):
 
 @router.post("/feedback")
 async def post_feedback(
-    feedback_request: FeedbackRequest, user=Depends(get_current_user), db: Session = Depends(get_db)
+    feedback_request: FeedbackRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if not user:
         raise HTTPException(
@@ -277,7 +347,9 @@ async def delete_character(
 
 
 @router.post("/generate_audio")
-async def generate_audio(text: str, tts: Optional[str] = None, user=Depends(get_current_user)):
+async def generate_audio(
+    text: str, tts: Optional[str] = None, user=Depends(get_current_user)
+):
     if not isinstance(text, str) or text == "":
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -323,7 +395,9 @@ async def generate_audio(text: str, tts: Optional[str] = None, user=Depends(get_
 
 
 @router.post("/clone_voice")
-async def clone_voice(filelist: list[UploadFile] = Form(...), user=Depends(get_current_user)):
+async def clone_voice(
+    filelist: list[UploadFile] = Form(...), user=Depends(get_current_user)
+):
     if not user:
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED,
@@ -376,7 +450,10 @@ async def clone_voice(filelist: list[UploadFile] = Form(...), user=Depends(get_c
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "https://api.elevenlabs.io/v1/voices/add", headers=headers, data=data, files=files
+            "https://api.elevenlabs.io/v1/voices/add",
+            headers=headers,
+            data=data,
+            files=files,
         )
 
     if response.status_code != 200:
@@ -405,7 +482,9 @@ async def system_prompt(request: GeneratePromptRequest, user=Depends(get_current
 
 
 @router.get("/conversations", response_model=list[dict])
-async def get_recent_conversations(user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_recent_conversations(
+    user=Depends(get_current_user), db: Session = Depends(get_db)
+):
     if not user:
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED,
@@ -419,7 +498,10 @@ async def get_recent_conversations(user=Depends(get_current_user), db: Session =
             Interaction.client_message_unicode,
             Interaction.timestamp,
             func.row_number()
-            .over(partition_by=Interaction.session_id, order_by=Interaction.timestamp.desc())
+            .over(
+                partition_by=Interaction.session_id,
+                order_by=Interaction.timestamp.desc(),
+            )
             .label("rn"),
         )
         .filter(Interaction.user_id == user_id)
@@ -435,7 +517,8 @@ async def get_recent_conversations(user=Depends(get_current_user), db: Session =
 
     # Format the results to the desired output
     return [
-        {"session_id": r[0], "client_message_unicode": r[1], "timestamp": r[2]} for r in results
+        {"session_id": r[0], "client_message_unicode": r[1], "timestamp": r[2]}
+        for r in results
     ]
 
 

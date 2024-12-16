@@ -30,3 +30,4 @@ SpeechRecognition==3.10.0
 SQLAlchemy==2.0.21
 starlette==0.27
 twilio==8.9.0
+siwe==4.4.0
