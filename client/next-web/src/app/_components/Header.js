@@ -11,7 +11,7 @@ import logo from '@/assets/svgs/logo.svg';
 
 
 import { ConnectButton } from 'thirdweb/react';
-import { client } from '../../lib/client';
+import { client } from '../../util/client';
 import { generatePayload, isLoggedIn, login, logout } from '../actions/auth';
 import UserDropdown from './UserDropdown';
 
