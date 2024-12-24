@@ -43,7 +43,7 @@ from realtime_ai_character.models.character import (
 from pydantic import BaseModel
 import jwt
 
-SECRET_KEY = "your_secret_key"  # Замените на более сложный ключ
+SECRET_KEY = os.environ.get("THIRDWEB_ADMIN_PRIVATE_KEY")  
 ALGORITHM = "HS256"  # Алгоритм шифрования
 TOKEN_EXPIRATION_MINUTES = 60  # Срок действия токена
 
@@ -65,6 +65,7 @@ class Payload(BaseModel):
 
 class AuthPayload(BaseModel):
     payload: Payload
+    token: str
 
 
 if os.getenv("USE_AUTH") == "true":
@@ -114,9 +115,9 @@ async def login(input: AuthPayload):
 
     try:
 
-        print("Received payload: ", input.model_dump())
+        jwt.decode(input.token, SECRET_KEY, algorithms=[ALGORITHM])
 
-        payload_data = input.model_dump()
+        payload_data = input.payload.model_dump()
 
         token = generate_jwt(payload_data)
 
