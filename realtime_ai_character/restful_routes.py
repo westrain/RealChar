@@ -4,6 +4,7 @@ import os
 import uuid
 from typing import Optional
 
+from fastapi.responses import JSONResponse
 import firebase_admin
 import httpx
 from fastapi import (
@@ -40,11 +41,11 @@ from realtime_ai_character.models.character import (
     GeneratePromptRequest,
 )
 from pydantic import BaseModel
-from siwe import SiweMessage
 import jwt
 
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")
-JWT_ALGORITHM = "HS256"
+SECRET_KEY = "your_secret_key"  # Замените на более сложный ключ
+ALGORITHM = "HS256"  # Алгоритм шифрования
+TOKEN_EXPIRATION_MINUTES = 60  # Срок действия токена
 
 
 router = APIRouter()
@@ -52,19 +53,17 @@ router = APIRouter()
 
 class Payload(BaseModel):
     address: str
-    chain_id: str
-    domain: str
-    expiration_time: Optional[str]
-    invalid_before: Optional[str]
-    issued_at: Optional[str]
+    domain: Optional[str]
+    expiration_time: str
+    invalid_before: str
+    issued_at: str
     nonce: str
-    statement: Optional[str]
+    statement: str
     version: str
-    uri: str
+    uri: Optional[str]
 
 
 class AuthPayload(BaseModel):
-    signature: str
     payload: Payload
 
 
@@ -75,9 +74,16 @@ if os.getenv("USE_AUTH") == "true":
 MAX_FILE_UPLOADS = 5
 
 
-def generate_jwt(address: str) -> str:
-    payload = {"address": address}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+def generate_jwt(payload: dict) -> str:
+    """
+    Генерирует JWT-токен из переданных данных Payload.
+    """
+    expiration = datetime.datetime.utcnow() + datetime.timedelta(
+        minutes=TOKEN_EXPIRATION_MINUTES
+    )
+    payload["exp"] = expiration
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return token
 
 
 async def get_current_user(request: Request):
@@ -89,7 +95,7 @@ async def get_current_user(request: Request):
         )
 
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -106,27 +112,25 @@ async def get_current_user(request: Request):
 @router.post("/auth/login")
 async def login(input: AuthPayload):
 
-    print("payload: ", input)
     try:
 
-        signature = input.signature
+        print("Received payload: ", input.model_dump())
 
-        message = SiweMessage(input.payload)
+        payload_data = input.model_dump()
 
-        message.verify(signature)
+        token = generate_jwt(payload_data)
 
-        token = generate_jwt(message.address)
-        return {"status": "success", "token": token}
+        return JSONResponse(content={"status": "success", "token": token})
 
     except Exception as e:
         print(f"Login failed: {e}")
         raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Invalid signature or payload",
         )
 
 
-@router.get("/auth/check")
+@router.post("/auth/check")
 async def is_logged_in(token: str = Depends(get_current_user)):
 
     if token:

@@ -21,6 +21,9 @@ export default function Tabs({ characters }) {
   }, []);
 
   function charactersShown(tab) {
+
+    if (!characters.length) return []
+
     if (tab === 'explore') {
       return characters.filter((character) => character.source === 'default');
     } else if (tab === 'community') {

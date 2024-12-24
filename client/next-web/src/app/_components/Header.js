@@ -8,7 +8,11 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import logo from '@/assets/svgs/logo.svg';
-import AuthButton from './AuthButton';
+
+
+import { ConnectButton } from 'thirdweb/react';
+import { client } from '../../lib/client';
+import { generatePayload, isLoggedIn, login, logout } from '../actions/auth';
 import UserDropdown from './UserDropdown';
 
 import { useAuthContext } from '@/context/AuthContext';
@@ -30,7 +34,21 @@ export default function Header() {
       </div>
       <NavbarContent justify='end' className="h-full flex items-center">
         <NavbarItem>
-          <AuthButton />
+          <ConnectButton
+            client={client}
+            auth={{
+              isLoggedIn: async () => {
+                return await isLoggedIn();
+              },
+              doLogin: async (params) => {
+                await login(params);
+              },
+              getLoginPayload: async ({ address }) => generatePayload({ address }),
+              doLogout: async () => {
+                await logout();
+              },
+            }}
+          />
         </NavbarItem>
       </NavbarContent>
     </Navbar>
