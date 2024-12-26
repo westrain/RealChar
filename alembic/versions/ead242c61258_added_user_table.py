@@ -20,13 +20,15 @@ def upgrade() -> None:
     op.create_table('users',
                     sa.Column('id', sa.Integer(), primary_key=True),
                     sa.Column('name', sa.String(), nullable=True),
-                    sa.Column('email', sa.String(),
+                    sa.Column('address', sa.String(),
+                              nullable=False, unique=True),
+                    sa.Column('uid', sa.Text(),
                               nullable=False, unique=True),
                     sa.PrimaryKeyConstraint('id')
                     )
-    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    op.create_index(op.f('ix_users_address'), 'users', ['address'], unique=True)
 
 
 def downgrade() -> None:
-    op.drop_index(op.f('ix_users_email'), table_name='users')
+    op.drop_index(op.f('ix_users_address'), table_name='users')
     op.drop_table('users')

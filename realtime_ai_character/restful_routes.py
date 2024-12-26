@@ -40,8 +40,11 @@ from realtime_ai_character.models.character import (
     GenerateHighlightRequest,
     GeneratePromptRequest,
 )
+from realtime_ai_character.models.user import User
 from pydantic import BaseModel
 import jwt
+
+from realtime_ai_character.user_service.user_repository import UserRepository
 
 SECRET_KEY = os.environ.get("THIRDWEB_ADMIN_PRIVATE_KEY")
 ALGORITHM = "HS256"  # Алгоритм шифрования
@@ -96,8 +99,6 @@ async def get_current_user(request: Request):
         try:
             decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
-            print("decoded_token", decoded_token)
-
         except jwt.ExpiredSignatureError:
             raise HTTPException(
                 status_code=http_status.HTTP_401_UNAUTHORIZED,
@@ -113,7 +114,7 @@ async def get_current_user(request: Request):
 
 
 @router.post("/auth/login")
-async def login(input: AuthPayload):
+async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
     try:
 
@@ -121,9 +122,26 @@ async def login(input: AuthPayload):
 
         payload_data = input.payload.model_dump()
 
-        token = generate_jwt(payload_data)
 
-        return JSONResponse(content={"status": "success", "token": token})
+        user_exists: User = await asyncio.to_thread(
+            UserRepository.find_by_address, db, payload_data["address"]
+        )
+
+        if not user_exists:
+            new_user = User(
+                name="John Doe", uid=str(uuid.uuid4()), address=payload_data["address"]
+            )
+            user_exists = await asyncio.to_thread(
+                UserRepository.save_user, db, new_user
+            )
+
+        updated_payload = {**payload_data, "uid": user_exists.uid}
+        
+        print("updated_payload", updated_payload)
+
+        new_token = jwt.encode(updated_payload, SECRET_KEY, algorithm=ALGORITHM)
+
+        return JSONResponse(content={"status": "success", "token": new_token})
 
     except Exception as e:
         print(f"Login failed: {e}")
