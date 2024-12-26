@@ -9,6 +9,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String)
     email = Column(String, unique=True, index=True, nullable=False)
+    address = Column(String, unique=True, index=True, nullable=False)
 
     def save(self, db):
         db.add(self)

@@ -43,7 +43,7 @@ from realtime_ai_character.models.character import (
 from pydantic import BaseModel
 import jwt
 
-SECRET_KEY = os.environ.get("THIRDWEB_ADMIN_PRIVATE_KEY")  
+SECRET_KEY = os.environ.get("THIRDWEB_ADMIN_PRIVATE_KEY")
 ALGORITHM = "HS256"  # Алгоритм шифрования
 TOKEN_EXPIRATION_MINUTES = 60  # Срок действия токена
 
@@ -68,9 +68,9 @@ class AuthPayload(BaseModel):
     token: str
 
 
-if os.getenv("USE_AUTH") == "true":
-    cred = credentials.Certificate(os.environ.get("FIREBASE_CONFIG_PATH"))
-    firebase_admin.initialize_app(cred)
+# if os.getenv("USE_AUTH") == "true":
+#     cred = credentials.Certificate(os.environ.get("FIREBASE_CONFIG_PATH"))
+#     firebase_admin.initialize_app(cred)
 
 MAX_FILE_UPLOADS = 5
 
@@ -88,26 +88,28 @@ def generate_jwt(payload: dict) -> str:
 
 
 async def get_current_user(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not token:
-        raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing",
-        )
+    """Returns the current user if the request is authenticated, otherwise None."""
+    if os.getenv("USE_AUTH") == "true" and "Authorization" in request.headers:
 
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired",
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+        try:
+            decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+            print("decoded_token", decoded_token)
+
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
+                detail="Token expired",
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+
+        return decoded_token
 
 
 @router.post("/auth/login")
@@ -166,6 +168,7 @@ async def characters(user=Depends(get_current_user)):
     from realtime_ai_character.character_catalog.catalog_manager import CatalogManager
 
     catalog: CatalogManager = CatalogManager.get_instance()
+
     return [
         {
             "character_id": character.character_id,
