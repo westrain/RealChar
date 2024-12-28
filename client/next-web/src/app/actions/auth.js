@@ -1,7 +1,7 @@
 'use server';
 import { createAuth } from 'thirdweb/auth';
 import { privateKeyToAccount } from 'thirdweb/wallets';
-import { client } from '../../util/client';
+import client from '@/lib/thirdweb-client';
 import { cookies } from 'next/headers';
 
 import { sign } from 'jsonwebtoken';
