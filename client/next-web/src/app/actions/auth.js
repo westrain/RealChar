@@ -10,7 +10,7 @@ import { sign } from 'jsonwebtoken';
 
 const privateKey = process.env.THIRDWEB_ADMIN_PRIVATE_KEY;
 
-const backendUrl = process.env.BACKEND_URL //'http://127.0.0.1:8000'
+const backendUrl = process.env.API_HOST //'http://127.0.0.1:8000'
 
 if (!privateKey) {
   throw new Error('Missing THIRDWEB_ADMIN_PRIVATE_KEY in .env file.');
