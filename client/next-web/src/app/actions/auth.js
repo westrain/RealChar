@@ -8,7 +8,9 @@ import { sign } from 'jsonwebtoken';
 
 // TODO: Константы/url вынести в .env
 
-const privateKey = process.env.THIRDWEB_ADMIN_PRIVATE_KEY || '';
+const privateKey = process.env.THIRDWEB_ADMIN_PRIVATE_KEY;
+
+const backendUrl = process.env.BACKEND_URL //'http://127.0.0.1:8000'
 
 if (!privateKey) {
   throw new Error('Missing THIRDWEB_ADMIN_PRIVATE_KEY in .env file.');
@@ -38,7 +40,7 @@ export async function login(payload) {
         options
       );
 
-      const response = await fetch('http://127.0.0.1:8000/auth/login', {
+      const response = await fetch(`${backendUrl}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,7 +67,7 @@ export async function isLoggedIn() {
   if (!jwt?.value) {
     return false;
   }
-  const response = await fetch('http://127.0.0.1:8000/auth/check', {
+  const response = await fetch(`${backendUrl}/auth/check`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${jwt.value}`,
