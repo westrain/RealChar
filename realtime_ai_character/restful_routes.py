@@ -71,10 +71,6 @@ class AuthPayload(BaseModel):
     token: str
 
 
-# if os.getenv("USE_AUTH") == "true":
-#     cred = credentials.Certificate(os.environ.get("FIREBASE_CONFIG_PATH"))
-#     firebase_admin.initialize_app(cred)
-
 MAX_FILE_UPLOADS = 5
 
 
@@ -91,21 +87,24 @@ def generate_jwt(payload: dict) -> str:
 
 
 async def get_current_user(request: Request):
-    """Returns the current user if the request is authenticated, otherwise None."""
-    if os.getenv("USE_AUTH") == "true" and "Authorization" in request.headers:
+    try:
 
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            raise ValueError("Authorization header is missing or empty")
 
         decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
         return decoded_token
+
+    except Exception as e:
+        print(f"Error in get_current_user: {e}")
+        return None
 
 
 @router.post("/auth/login")
 async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
     try:
-        
         jwt.decode(input.token, SECRET_KEY, algorithms=[ALGORITHM])
 
         payload_data = input.payload.model_dump()
@@ -124,12 +123,10 @@ async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
         updated_payload = {**payload_data, "uid": user_exists.uid}
 
-        print("updated_payload", updated_payload)
-
-        new_token = jwt.encode(updated_payload, SECRET_KEY, algorithm=ALGORITHM)
+        new_token = generate_jwt(updated_payload)
 
         return JSONResponse(content={"status": "success", "token": new_token})
-
+    
     except Exception as e:
         print(f"Login failed: {e}")
         raise HTTPException(
@@ -143,6 +140,7 @@ async def is_logged_in(token: str = Depends(get_current_user)):
 
     if token:
         return {"status": "success", "user": token}
+
     raise HTTPException(
         status_code=http_status.HTTP_401_UNAUTHORIZED,
         detail="User not authenticated",
