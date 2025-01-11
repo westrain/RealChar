@@ -96,19 +96,7 @@ async def get_current_user(request: Request):
 
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
 
-        try:
-            decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
-        except jwt.ExpiredSignatureError:
-            raise HTTPException(
-                status_code=http_status.HTTP_401_UNAUTHORIZED,
-                detail="Token expired",
-            )
-        except jwt.InvalidTokenError:
-            raise HTTPException(
-                status_code=http_status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
-            )
+        decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
         return decoded_token
 
@@ -117,11 +105,10 @@ async def get_current_user(request: Request):
 async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
     try:
-
+        
         jwt.decode(input.token, SECRET_KEY, algorithms=[ALGORITHM])
 
         payload_data = input.payload.model_dump()
-
 
         user_exists: User = await asyncio.to_thread(
             UserRepository.find_by_address, db, payload_data["address"]
@@ -136,7 +123,7 @@ async def login(input: AuthPayload, db: Session = Depends(get_db)):
             )
 
         updated_payload = {**payload_data, "uid": user_exists.uid}
-        
+
         print("updated_payload", updated_payload)
 
         new_token = jwt.encode(updated_payload, SECRET_KEY, algorithm=ALGORITHM)
