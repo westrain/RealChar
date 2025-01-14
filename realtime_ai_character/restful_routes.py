@@ -101,6 +101,14 @@ async def get_current_user(request: Request):
         return None
 
 
+async def findUserByAddress(address: str, db: Session ):
+    user_exists: User = await asyncio.to_thread(
+        UserRepository.find_by_address, db, address
+    )
+
+    return user_exists
+
+
 @router.post("/auth/login")
 async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
@@ -126,7 +134,7 @@ async def login(input: AuthPayload, db: Session = Depends(get_db)):
         new_token = generate_jwt(updated_payload)
 
         return JSONResponse(content={"status": "success", "token": new_token})
-    
+
     except Exception as e:
         print(f"Login failed: {e}")
         raise HTTPException(
@@ -136,10 +144,13 @@ async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/check")
-async def is_logged_in(token: str = Depends(get_current_user)):
+async def is_logged_in(token=Depends(get_current_user), db: Session = Depends(get_db)):
 
     if token:
-        return {"status": "success", "user": token}
+
+        user: User = await findUserByAddress(token['address'], db)
+
+        return JSONResponse(content={"status": "success", "user": user.to_dict()})
 
     raise HTTPException(
         status_code=http_status.HTTP_401_UNAUTHORIZED,

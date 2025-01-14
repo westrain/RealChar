@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, inspect
 from realtime_ai_character.database.base import Base
 
 
@@ -13,3 +13,6 @@ class User(Base):
     def save(self, db):
         db.add(self)
         db.commit()
+        
+    def to_dict(self):
+        return {c.key: getattr(self, c.key) for c in inspect(self).mapper.column_attrs}

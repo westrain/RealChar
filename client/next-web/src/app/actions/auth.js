@@ -56,6 +56,8 @@ export async function login(payload) {
       const jwt = data.token;
 
       cookies().set('jwt', jwt);
+
+      return data;
     } catch (error) {
       console.error('Ошибка логина:', error);
     }
@@ -78,7 +80,7 @@ export async function isLoggedIn() {
     return false;
   }
 
-  return true;
+  return response.json();
 }
 
 export async function logout() {
