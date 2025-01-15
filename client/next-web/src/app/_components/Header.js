@@ -43,21 +43,22 @@ export default function Header() {
                 const isLogged = await isLoggedIn();
 
                 if (isLogged?.status === 'success') {
+                  setToken(isLogged.token);
                   setUser(isLogged.user);
                 } else {
                   clearUser();
                 }
 
-                return await isLoggedIn();
+                return isLogged;
               },
               doLogin: async (params) => {
                 const logged = await login(params);
 
-                console.log('logged-----', logged);
-
-
                 if (logged?.status === 'success') {
                   setToken(logged.token);
+                  setUser(logged.token);
+                } else {
+                  clearUser();
                 }
               },
               getLoginPayload: async ({ address }) => generatePayload({ address }),

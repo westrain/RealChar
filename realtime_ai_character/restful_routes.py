@@ -94,6 +94,9 @@ async def get_current_user(request: Request):
             raise ValueError("Authorization header is missing or empty")
 
         decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        decoded_token["token"] = token
+
         return decoded_token
 
     except Exception as e:
@@ -101,7 +104,7 @@ async def get_current_user(request: Request):
         return None
 
 
-async def findUserByAddress(address: str, db: Session ):
+async def findUserByAddress(address: str, db: Session):
     user_exists: User = await asyncio.to_thread(
         UserRepository.find_by_address, db, address
     )
@@ -144,13 +147,15 @@ async def login(input: AuthPayload, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/check")
-async def is_logged_in(token=Depends(get_current_user), db: Session = Depends(get_db)):
+async def is_logged_in(auth=Depends(get_current_user), db: Session = Depends(get_db)):
 
-    if token:
+    if auth:
 
-        user: User = await findUserByAddress(token['address'], db)
+        user: User = await findUserByAddress(auth["address"], db)
 
-        return JSONResponse(content={"status": "success", "user": user.to_dict()})
+        return JSONResponse(
+            content={"status": "success", "token": auth["token"], "user": user.to_dict()}
+        )
 
     raise HTTPException(
         status_code=http_status.HTTP_401_UNAUTHORIZED,
