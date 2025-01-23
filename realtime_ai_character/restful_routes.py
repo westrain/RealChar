@@ -2,6 +2,8 @@ import asyncio
 import datetime
 import os
 import uuid
+import io
+from minio import Minio
 from typing import Optional
 
 from fastapi.responses import JSONResponse
@@ -19,7 +21,6 @@ from fastapi import (
 )
 from firebase_admin import auth, credentials
 from firebase_admin.exceptions import FirebaseError
-from google.cloud import storage
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -46,12 +47,24 @@ import jwt
 
 from realtime_ai_character.user_service.user_repository import UserRepository
 
+
 SECRET_KEY = os.environ.get("THIRDWEB_ADMIN_PRIVATE_KEY")
 ALGORITHM = "HS256"  # Алгоритм шифрования
 TOKEN_EXPIRATION_MINUTES = 60  # Срок действия токена
 
 
 router = APIRouter()
+
+
+minio_client = Minio(
+    endpoint=os.environ.get("MINIO_ENDPOINT"),
+    access_key=os.environ.get("MINIO_ROOT_USER"),
+    secret_key=os.environ.get("MINIO_ROOT_PASSWORD"),
+    secure=False,
+)
+
+bucket_name = os.getenv("MINIO_BUCKET_NAME", "static")
+minio_base_url = os.getenv("MINIO_URL", "http://localhost:9000")
 
 
 class Payload(BaseModel):
@@ -154,7 +167,11 @@ async def is_logged_in(auth=Depends(get_current_user), db: Session = Depends(get
         user: User = await findUserByAddress(auth["address"], db)
 
         return JSONResponse(
-            content={"status": "success", "token": auth["token"], "user": user.to_dict()}
+            content={
+                "status": "success",
+                "token": auth["token"],
+                "user": user.to_dict(),
+            }
         )
 
     raise HTTPException(
@@ -170,18 +187,28 @@ async def status():
 
 @router.get("/characters")
 async def characters(user=Depends(get_current_user)):
-    gcs_path = os.getenv("GCP_STORAGE_URL")
-    if not gcs_path:
+
+    if not bucket_name:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GCP_STORAGE_URL is not set",
+            detail="MINIO_BUCKET_NAME is not set",
         )
 
     def get_image_url(character):
-        if character.data and "avatar_filename" in character.data:
-            return f'{gcs_path}/{character.data["avatar_filename"]}'
-        else:
-            return f"{gcs_path}/static/realchar/{character.character_id}.jpg"
+        try:
+            if character.data and "avatar_filename" in character.data:
+                object_name = character.data["avatar_filename"]
+            else:
+                object_name = f"realchar/{character.character_id}.jpg"
+
+            # Формируем URL объекта
+            url = f"{minio_base_url}/{bucket_name}/{object_name}"
+            return url
+        except Exception as e:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Image not found: {str(e)}",
+            )
 
     uid = user["uid"] if user else None
     from realtime_ai_character.character_catalog.catalog_manager import CatalogManager
@@ -195,7 +222,7 @@ async def characters(user=Depends(get_current_user)):
             "source": character.source,
             "voice_id": character.voice_id,
             "author_name": character.author_name,
-            "audio_url": f"{gcs_path}/static/realchar/{character.character_id}.mp3",
+            "audio_url": f"{minio_base_url}/{bucket_name}/realchar/{character.character_id}.mp3",
             "image_url": get_image_url(character),
             "tts": character.tts,
             "is_author": character.author_id == uid,
@@ -258,17 +285,9 @@ async def upload_file(file: UploadFile = File(...), user=Depends(get_current_use
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    storage_client = storage.Client()
-    bucket_name = os.environ.get("GCP_STORAGE_BUCKET_NAME")
-    if not bucket_name:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GCP_STORAGE_BUCKET_NAME is not set",
-        )
+    if not minio_client.bucket_exists(bucket_name):
+        minio_client.make_bucket(bucket_name)
 
-    bucket = storage_client.bucket(bucket_name)
-
-    # Create a new filename with a timestamp and a random uuid to avoid duplicate filenames
     file_extension = os.path.splitext(file.filename)[1] if file.filename else ""
     new_filename = (
         f"user_upload/{user['uid']}/"
@@ -276,11 +295,16 @@ async def upload_file(file: UploadFile = File(...), user=Depends(get_current_use
         f"{uuid.uuid4()}{file_extension}"
     )
 
-    blob = bucket.blob(new_filename)
-
     contents = await file.read()
 
-    await asyncio.to_thread(blob.upload_from_string, contents)
+    await asyncio.to_thread(
+        minio_client.put_object,
+        bucket_name,
+        new_filename,
+        data=io.BytesIO(contents),
+        length=len(contents),
+        content_type=file.content_type,
+    )
 
     return {"filename": new_filename, "content-type": file.content_type}
 
@@ -388,6 +412,7 @@ async def generate_audio(
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     try:
         tts_service = get_text_to_speech(tts)
     except NotImplementedError:
@@ -395,18 +420,15 @@ async def generate_audio(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail="Text to speech engine not found",
         )
+
     audio_bytes = await tts_service.generate_audio(text)
-    # save audio to a file on GCS
-    storage_client = storage.Client()
-    bucket_name = os.environ.get("GCP_STORAGE_BUCKET_NAME")
+
     if not bucket_name:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GCP_STORAGE_BUCKET_NAME is not set",
+            detail="MINIO_BUCKET_NAME is not set",
         )
-    bucket = storage_client.bucket(bucket_name)
 
-    # Create a new filename with a timestamp and a random uuid to avoid duplicate filenames
     file_extension = ".mp3"
     new_filename = (
         f"user_upload/{user['uid']}/"
@@ -414,9 +436,24 @@ async def generate_audio(
         f"{uuid.uuid4()}{file_extension}"
     )
 
-    blob = bucket.blob(new_filename)
+    try:
 
-    await asyncio.to_thread(blob.upload_from_string, audio_bytes)
+        audio_stream = io.BytesIO(audio_bytes)
+
+        await asyncio.to_thread(
+            minio_client.put_object,
+            bucket_name,
+            new_filename,
+            data=audio_stream,
+            length=len(audio_bytes),
+            content_type="audio/mpeg",
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload audio to MinIO: {str(e)}",
+        )
 
     return {"filename": new_filename, "content-type": "audio/mpeg"}
 
@@ -437,19 +474,16 @@ async def clone_voice(
             detail=f"Number of files exceeds the limit ({MAX_FILE_UPLOADS})",
         )
 
-    storage_client = storage.Client()
-    bucket_name = os.environ.get("GCP_STORAGE_BUCKET_NAME")
     if not bucket_name:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GCP_STORAGE_BUCKET_NAME is not set",
+            detail="MINIO_BUCKET_NAME is not set",
         )
 
-    bucket = storage_client.bucket(bucket_name)
     voice_request_id = str(uuid.uuid4().hex)
 
     for file in filelist:
-        # Create a new filename with a timestamp and a random uuid to avoid duplicate filenames
+
         file_extension = os.path.splitext(file.filename)[1] if file.filename else ""
         new_filename = (
             f"user_upload/{user['uid']}/{voice_request_id}/"
@@ -457,14 +491,25 @@ async def clone_voice(
             f"{uuid.uuid4()}{file_extension}"
         )
 
-        blob = bucket.blob(new_filename)
-
         contents = await file.read()
 
-        await asyncio.to_thread(blob.upload_from_string, contents)
+        try:
 
-    # Construct the data for the API request
-    # TODO: support more voice cloning services.
+            await asyncio.to_thread(
+                minio_client.put_object,
+                bucket_name,
+                new_filename,
+                data=io.BytesIO(contents),
+                length=len(contents),
+                content_type=file.content_type,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload file to MinIO: {str(e)}",
+            )
+
+    # TODO: поддержка других сервисов клонирования голоса.
     data = {
         "name": user["uid"] + "_" + voice_request_id,
     }
@@ -542,7 +587,6 @@ async def get_recent_conversations(
         .all
     )
 
-    # Format the results to the desired output
     return [
         {"session_id": r[0], "client_message_unicode": r[1], "timestamp": r[2]}
         for r in results
