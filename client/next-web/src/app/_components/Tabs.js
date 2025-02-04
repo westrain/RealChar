@@ -3,14 +3,13 @@ import ExploreTab from './ExploreTab';
 import MyTab from './MyTab';
 import TabButton from '@/components/TabButton';
 
-import { useAuthContext } from '@/context/AuthContext';
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/zustand/store';
 
 export default function Tabs({ characters }) {
-  const { user } = useAuthContext();
-  const { tabNow, setTabNow } = useAppStore();
+
+  const { user, tabNow, setTabNow } = useAppStore();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -21,6 +20,8 @@ export default function Tabs({ characters }) {
   }, []);
 
   function charactersShown(tab) {
+    if (!characters.length) return [];
+
     if (tab === 'explore') {
       return characters.filter((character) => character.source === 'default');
     } else if (tab === 'community') {

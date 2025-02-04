@@ -9,6 +9,7 @@ import { createCharacterSlice } from '@/zustand/slices/characterSlice';
 import { createJournalSlice } from '@/zustand/slices/journalSlice';
 import { createCommandSlice } from '@/zustand/slices/commandSlice';
 import { createNavigationSlice } from '@/zustand/slices/navigationSlice';
+import { createUserStore } from '@/zustand/user.store';
 
 export const useAppStore = create((...a) => ({
   ...createSettingSlice(...a),
@@ -20,4 +21,5 @@ export const useAppStore = create((...a) => ({
   ...createJournalSlice(...a),
   ...createCommandSlice(...a),
   ...createNavigationSlice(...a),
+  ...createUserStore(...a)
 }));

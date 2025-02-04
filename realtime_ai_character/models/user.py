@@ -1,15 +1,18 @@
-from sqlalchemy import Column, Integer, String
-
+from sqlalchemy import Column, Integer, String, inspect
 from realtime_ai_character.database.base import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String)
-    email = Column(String, unique=True, index=True, nullable=False)
+    uid = Column(String, unique=True, index=True, nullable=False)
+    address = Column(String, unique=True, index=True, nullable=False)
 
     def save(self, db):
         db.add(self)
         db.commit()
+        
+    def to_dict(self):
+        return {c.key: getattr(self, c.key) for c in inspect(self).mapper.column_attrs}
